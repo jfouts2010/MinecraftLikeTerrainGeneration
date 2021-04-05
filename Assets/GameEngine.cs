@@ -34,8 +34,8 @@ public class GameEngine : MonoBehaviour
             gt.Next();
             WaterUpdate();
             /*VegetationUpdate();
-            TreeUpdate();
-            Snow();*/
+            TreeUpdate();*/
+            Snow();
         }
     }
     public void Snow()
