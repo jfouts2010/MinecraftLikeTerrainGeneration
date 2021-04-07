@@ -13,6 +13,7 @@ public class GameTime
     public void Next()
     {
         minute++;
+        day++;
         if (minute >= 60)
         {
             minute = 0;

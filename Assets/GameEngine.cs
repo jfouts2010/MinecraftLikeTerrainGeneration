@@ -17,6 +17,7 @@ public class GameEngine : MonoBehaviour
     public Material terrainMaterial;
     public ClimateData cd;
     public Climate c;
+    public Terrain TerrainType;
     // Start is called before the first frame update
     public void Awake()
     {
@@ -33,8 +34,11 @@ public class GameEngine : MonoBehaviour
             lastUpdate = Time.time;
             gt.Next();
             WaterUpdate();
-            /*VegetationUpdate();
-            TreeUpdate();*/
+           /* if (gt.minute == 1)
+            {
+                VegetationUpdate();
+                TreeUpdate();
+            }*/
             Snow();
         }
     }
@@ -51,7 +55,7 @@ public class GameEngine : MonoBehaviour
         }
         else
         {
-            float hours = (float)gt.hour + (float)gt.day * 24f - (float)30f - 24f;
+            float hours = (float)gt.hour + (float)gt.day * 24f - 30f * 24f;
             float totalHours = 30f * 24f;
             float startValue = cd.seasonData[gt.season].SnowMidValue;
             float endValue = cd.seasonData[gt.season].SnowEndValue;
@@ -62,6 +66,7 @@ public class GameEngine : MonoBehaviour
     }
     public void TreeUpdate()
     {
+        //NEEDS TO BE REDONE
         float seasonGrassLimit = cd.seasonData[gt.season].GrowthValue / 5f;
         int growthRate = 1;
         if (gt.season == Season.Spring)

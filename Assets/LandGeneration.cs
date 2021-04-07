@@ -11,9 +11,11 @@ public class LandGeneration : MonoBehaviour
     public Dictionary<Vector3, BrickInformation> SurfaceBricks = new Dictionary<Vector3, BrickInformation>();
     public List<BrickInformation> FlowingWater = new List<BrickInformation>();
     // Start is called before the first frame update
-    public GameObject prefab;
-    public GameObject PerlinNoisePreview;
-    public Material mat;
+    public Material terrainMat;
+    public Material treeMat;
+    public Material grassMat;
+    GameObject TreeMeshs;
+    GameObject GrassMeshs;
     Dictionary<GameObject, List<Vector3>> MeshChunks = new Dictionary<GameObject, List<Vector3>>();
     float lastUpdate = 0;
     int mapXSize = 100;
@@ -21,16 +23,26 @@ public class LandGeneration : MonoBehaviour
     int mapZSize = 100;
     public GameEngine ge;
     FastNoiseLite fnl;
+
     public bool IsAir(Vector3 pos)
     {
         return WorldInformation.ContainsKey(pos) ? WorldInformation[pos].bt == BrickType.air && WorldInformation[pos].waterLevel == 0 : true;
     }
     void Start()
     {
+        TreeMeshs = Instantiate(new GameObject());
+        TreeMeshs.transform.parent = transform;
+        GrassMeshs = Instantiate(new GameObject());
+        GrassMeshs.transform.parent = transform;
         ge = GameObject.Find("Engine").GetComponent<GameEngine>();
         int rand = 69;//Random.Range(0, 100);
         UnityEngine.Random.InitState(rand);
-        fnl = GenHillGeneration(rand);
+        if (ge.TerrainType == Terrain.Hill)
+            fnl = GenHillGeneration(rand);
+        else if (ge.TerrainType == Terrain.Mountain)
+            fnl = GenMountainGeneration(rand);
+        else if (ge.TerrainType == Terrain.Plains)
+            fnl = GenHillGeneration(rand);
         for (int x = -mapXSize / 2; x < mapXSize / 2; x++)
             for (int z = -mapZSize / 2; z < mapZSize / 2; z++)
                 for (int y = -mapYSize / 2; y < mapYSize / 2; y++)
@@ -63,43 +75,166 @@ public class LandGeneration : MonoBehaviour
         AddBrick(new Vector3(16, -2, 2));
         AddBrick(new Vector3(17, -2, 2));
 
-        //InitialGrassAndTreeSpawn();
+        InitialGrassAndTreeSpawn();
     }
     public void InitialGrassAndTreeSpawn()
     {
+        MeshRenderer mrTree = TreeMeshs.AddComponent<MeshRenderer>();
+        mrTree.material = treeMat;
+        MeshFilter mfTree = TreeMeshs.AddComponent<MeshFilter>();
+        Mesh treeMesh = new Mesh();
+        mfTree.mesh = treeMesh;
+
+        MeshRenderer mrGrass = GrassMeshs.AddComponent<MeshRenderer>();
+        mrGrass.material = grassMat;
+        MeshFilter mfGrass = GrassMeshs.AddComponent<MeshFilter>();
+        Mesh grassMesh = new Mesh();
+        mfGrass.mesh = grassMesh;
+
+        List<int> treeTriangles = new List<int>();
+        List<Vector3> treeVerts = new List<Vector3>();
+        List<Vector2> treeUVs = new List<Vector2>();
+
+        List<int> grassTriangles = new List<int>();
+        List<Vector3> grassVerts = new List<Vector3>();
+        List<Vector2> grassUVs = new List<Vector2>();
+
+        float seasonGrassLimit = ge.cd.seasonData[ge.gt.season].GrowthValue * 1.5f;
+        float seasonTreeLimit = ge.cd.seasonData[ge.gt.season].GrowthValue;
+        List<Vector3> surface = SurfaceBricks.Where(p => p.Value.bt == BrickType.dirt).Select(p => p.Key).ToList();//lg.WorldInformation.Where(p => p.Value.SurfaceBrick && p.Value.bt == BrickType.dirt).Select(p => p.Key).ToList();
+
+        FastNoiseLite fnlGRASS = ge.GrassGeneration(ge.seed);
+        FastNoiseLite fnlTREE = ge.TreeGeneration(ge.seed + 10);
+        var temp = GetFNLMin(fnlGRASS);
+        float grassMin = temp[0];
+        float grassMax = temp[1];
+        temp = GetFNLMin(fnlTREE);
+        float treeMin = temp[0];
+        float treeMax = temp[1];
+        foreach (Vector3 pos in surface.OrderBy(a => Guid.NewGuid()))
         {
-            float seasonGrassLimit = ge.cd.seasonData[ge.gt.season].GrowthValue;
-            float seasonTreeLimit = ge.cd.seasonData[ge.gt.season].GrowthValue / 5f;
-            List<Vector3> surface = SurfaceBricks.Where(p => p.Value.bt == BrickType.dirt).Select(p => p.Key).ToList();//lg.WorldInformation.Where(p => p.Value.SurfaceBrick && p.Value.bt == BrickType.dirt).Select(p => p.Key).ToList();
-            FastNoiseLite fnlGRASS = ge.GrassGeneration(ge.seed);
-            FastNoiseLite fnlTREE = ge.TreeGeneration(ge.seed + 10);
-            foreach (Vector3 pos in surface.OrderBy(a => Guid.NewGuid()))
+            BrickInformation bi = WorldInformation[pos];
+            float heightGrass = (fnlGRASS.GetNoise(pos.x, pos.z) - grassMin) / (grassMax - grassMin);
+            float heightTree = (fnlTREE.GetNoise(pos.x, pos.z) - treeMin) / (treeMax - treeMin);
+            if (heightGrass < seasonGrassLimit) //grow grass
             {
-                BrickInformation bi = WorldInformation[pos];
-                float heightGrass = Mathf.Clamp(fnlGRASS.GetNoise(pos.x, pos.z), 0, 1);
-                float heightTree = Mathf.Clamp(fnlTREE.GetNoise(pos.x, pos.z), 0, 1);
-                if (heightGrass < seasonGrassLimit) //grow grass
+                if (!bi.grass)
                 {
-                    if (!bi.grass)
+                    bi.grass = true;
+                    for (int i = 0; i < 3; i++)
                     {
-                        GameObject go = Instantiate(ge.grassPrefab);
-                        go.transform.position = pos + new Vector3(UnityEngine.Random.Range(-.35f, .35f), 0.5f, UnityEngine.Random.Range(-.35f, .35f));
-                        bi.grassObjects.Add(go);
-                        bi.grass = true;
-                    }
-                }
-                if (heightTree < seasonTreeLimit) //grow grass
-                {
-                    if (!bi.tree)
-                    {
-                        GameObject go = Instantiate(ge.treePrefab);
-                        go.transform.position = pos + new Vector3(0, 0.5f, 0);
-                        bi.TreeObjects = go;
-                        bi.tree = true;
+                        grassTriangles.Add(treeVerts.Count());
+                        grassTriangles.Add(treeVerts.Count() + 3);
+                        grassTriangles.Add(treeVerts.Count() + 2);
+
+                        grassTriangles.Add(treeVerts.Count());
+                        grassTriangles.Add(treeVerts.Count() + 1);
+                        grassTriangles.Add(treeVerts.Count() + 3);
+
+                        grassTriangles.Add(treeVerts.Count() + 4);
+                        grassTriangles.Add(treeVerts.Count() + 7);
+                        grassTriangles.Add(treeVerts.Count() + 6);
+
+                        grassTriangles.Add(treeVerts.Count() + 4);
+                        grassTriangles.Add(treeVerts.Count() + 5);
+                        grassTriangles.Add(treeVerts.Count() + 7);
+
+                        Vector3 diplacement = new Vector3(UnityEngine.Random.Range(-0.3f, .3f), UnityEngine.Random.Range(-0.05f, 0), UnityEngine.Random.Range(-0.3f, .3f));
+                        grassVerts.Add(pos + new Vector3(0.1f, .7f, 0) + diplacement);
+                        grassVerts.Add(pos + new Vector3(0.1f, .5f, 0) + diplacement);
+                        grassVerts.Add(pos + new Vector3(-0.1f, .7f, 0) + diplacement);
+                        grassVerts.Add(pos + new Vector3(-0.1f, .5f, 0) + diplacement);
+                        grassVerts.Add(pos + new Vector3(0, .7f, .1f) + diplacement);
+                        grassVerts.Add(pos + new Vector3(0, .5f, .1f) + diplacement);
+                        grassVerts.Add(pos + new Vector3(0, .7f, -.1f) + diplacement);
+                        grassVerts.Add(pos + new Vector3(0, .5f, -.1f) + diplacement);
+
+                        grassUVs.Add(new Vector2(1, 1));
+                        grassUVs.Add(new Vector2(1, 0));
+                        grassUVs.Add(new Vector2(0, 1));
+                        grassUVs.Add(new Vector2(0, 0));
+                        grassUVs.Add(new Vector2(1, 1));
+                        grassUVs.Add(new Vector2(1, 0));
+                        grassUVs.Add(new Vector2(0, 1));
+                        grassUVs.Add(new Vector2(0, 0));
                     }
                 }
             }
+            if (heightTree < seasonTreeLimit) //grow grass
+            {
+                if (!bi.tree)
+                {
+                    bi.tree = true;
+
+                    treeTriangles.Add(treeVerts.Count());
+                    treeTriangles.Add(treeVerts.Count() + 3);
+                    treeTriangles.Add(treeVerts.Count() + 2);
+
+                    treeTriangles.Add(treeVerts.Count());
+                    treeTriangles.Add(treeVerts.Count() + 1);
+                    treeTriangles.Add(treeVerts.Count() + 3);
+
+                    treeTriangles.Add(treeVerts.Count() + 4);
+                    treeTriangles.Add(treeVerts.Count() + 7);
+                    treeTriangles.Add(treeVerts.Count() + 6);
+
+                    treeTriangles.Add(treeVerts.Count() + 4);
+                    treeTriangles.Add(treeVerts.Count() + 5);
+                    treeTriangles.Add(treeVerts.Count() + 7);
+
+                    Vector3 diplacement = new Vector3(UnityEngine.Random.Range(-0.3f, .3f), UnityEngine.Random.Range(-0.3f, 0), UnityEngine.Random.Range(-0.3f, .3f));
+                    treeVerts.Add(pos + new Vector3(0.5f, 2.5f, 0) + diplacement);
+                    treeVerts.Add(pos + new Vector3(0.5f, .5f, 0) + diplacement);
+                    treeVerts.Add(pos + new Vector3(-0.5f, 2.5f, 0) + diplacement);
+                    treeVerts.Add(pos + new Vector3(-0.5f, .5f, 0) + diplacement);
+                    treeVerts.Add(pos + new Vector3(0, 2.5f, .5f) + diplacement);
+                    treeVerts.Add(pos + new Vector3(0, .5f, .5f) + diplacement);
+                    treeVerts.Add(pos + new Vector3(0, 2.5f, -.5f) + diplacement);
+                    treeVerts.Add(pos + new Vector3(0, .5f, -.5f) + diplacement);
+
+                    treeUVs.Add(new Vector2(1, 1));
+                    treeUVs.Add(new Vector2(1, 0));
+                    treeUVs.Add(new Vector2(0, 1));
+                    treeUVs.Add(new Vector2(0, 0));
+                    treeUVs.Add(new Vector2(1, 1));
+                    treeUVs.Add(new Vector2(1, 0));
+                    treeUVs.Add(new Vector2(0, 1));
+                    treeUVs.Add(new Vector2(0, 0));
+                }
+            }
         }
+        treeMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        treeMesh.Clear();
+        treeMesh.vertices = treeVerts.ToArray();
+        treeMesh.triangles = treeTriangles.ToArray();
+        treeMesh.uv = treeUVs.ToArray();
+        treeMesh.Optimize();
+        treeMesh.RecalculateBounds();
+        treeMesh.RecalculateTangents();
+
+        grassMesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+        grassMesh.Clear();
+        grassMesh.vertices = grassVerts.ToArray();
+        grassMesh.triangles = grassTriangles.ToArray();
+        grassMesh.uv = grassUVs.ToArray();
+        grassMesh.Optimize();
+        grassMesh.RecalculateBounds();
+        grassMesh.RecalculateTangents();
+    }
+    public new List<float> GetFNLMin(FastNoiseLite fnl)
+    {
+        float min = 0;
+        float max = 0;
+        for (int x = -1000; x < 1000; x++)
+            for (int y = -1000; y < 1000; y++)
+            {
+                float val = fnl.GetNoise(x, y);
+                if (val < min)
+                    min = val;
+                if (val > max)
+                    max = val;
+            }
+        return new List<float>() { min, max };
     }
     public void GenerateInitialMeshs()
     {
@@ -108,7 +243,7 @@ public class LandGeneration : MonoBehaviour
             {
                 GameObject go = Instantiate(new GameObject());
                 go.AddComponent<MeshRenderer>();
-                go.GetComponent<MeshRenderer>().material = mat;
+                go.GetComponent<MeshRenderer>().material = terrainMat;
                 go.AddComponent<MeshFilter>();
                 go.transform.parent = transform;
                 Mesh m = new Mesh();
@@ -131,7 +266,7 @@ public class LandGeneration : MonoBehaviour
         //m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
         MeshFilter mf = meshGO.GetComponent<MeshFilter>();
         MeshRenderer mr = meshGO.GetComponent<MeshRenderer>();
-        mr.material = mat;
+        mr.material = terrainMat;
         mf.mesh = m;
         //List<Vector3> normals = new List<Vector3>();
         List<int> triangles = new List<int>();
@@ -502,8 +637,8 @@ public class LandGeneration : MonoBehaviour
         fnl2.SetFractalType(FastNoiseLite.FractalType.Ridged);
         fnl2.SetFractalOctaves(4);
         fnl2.SetFractalLacunarity(2.2f);
-        fnl.SetFractalGain(.7f);
-        fnl.SetFractalWeightedStrength(.3f);
+        fnl2.SetFractalGain(.7f);
+        fnl2.SetFractalWeightedStrength(.3f);
         mapYSize = 50;
         return fnl2;
     }
@@ -539,4 +674,10 @@ public enum BrickType
     air,
     dirt,
     rock
+}
+public enum Terrain
+{
+    Mountain,
+    Hill,
+    Plains
 }
