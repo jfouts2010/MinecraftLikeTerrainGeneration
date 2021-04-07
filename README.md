@@ -7,3 +7,7 @@ Minecraft like terrain generation. Creates Hills/mountains/plains, and different
 ![alt text](Unity_fpVJSsa26j.png)
 
 some snow!
+
+Future Improvements:
+Rivers, Lakes, and Oceans
+Grass growth and decay during seasons
